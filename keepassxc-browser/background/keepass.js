@@ -325,7 +325,7 @@ keepass.generatePassword = async function(tab) {
             return [];
         }
 
-        let passwords = [];
+        let password;
         const kpAction = kpActions.GENERATE_PASSWORD;
         const [ nonce, incrementedNonce ] = keepass.getNonces();
 
@@ -348,22 +348,18 @@ keepass.generatePassword = async function(tab) {
             keepass.setcurrentKeePassXCVersion(parsed.version);
 
             if (keepass.verifyResponse(parsed, incrementedNonce)) {
-                if (parsed.entries) {
-                    passwords = parsed.entries;
-                    keepass.updateLastUsed(keepass.databaseHash);
-                } else {
-                    console.log('No entries returned. Is KeePassXC up-to-date?');
-                }
+                password = parsed.entries ?? parsed.password;
+                keepass.updateLastUsed(keepass.databaseHash);
             } else {
                 console.log('GeneratePassword rejected');
             }
 
-            return passwords;
+            return password;
         } else if (response.error && response.errorCode) {
             keepass.handleError(tab, response.errorCode, response.error);
         }
 
-        return passwords;
+        return password;
     } catch (err) {
         console.log('generatePassword failed: ', err);
         return [];

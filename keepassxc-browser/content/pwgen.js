@@ -70,12 +70,18 @@ PasswordIcon.prototype.createIcon = function(field) {
         icon.style.filter = 'saturate(0%)';
     }
 
-    icon.addEventListener('click', function(e) {
+    icon.addEventListener('click', async function(e) {
         if (!e.isTrusted) {
             return;
         }
 
         e.preventDefault();
+
+        if (await useKeePassXCPasswordGenerator()) {
+            kpxcPasswordDialog.generate(null, field);
+            return;
+        }
+
         kpxcPasswordDialog.showDialog(field, icon);
     });
 
@@ -206,7 +212,12 @@ kpxcPasswordDialog.openDialog = function() {
     }
 };
 
-kpxcPasswordDialog.trigger = function() {
+kpxcPasswordDialog.trigger = async function() {
+    if (await useKeePassXCPasswordGenerator()) {
+        kpxcPasswordDialog.generate(null, document.activeElement);
+        return;
+    }
+
     kpxcPasswordDialog.showDialog(document.activeElement, kpxcPasswordDialog.icon);
 };
 
@@ -243,13 +254,18 @@ kpxcPasswordDialog.showDialog = function(field, icon) {
     }
 };
 
-kpxcPasswordDialog.generate = async function(e) {
+kpxcPasswordDialog.generate = async function(e, field) {
     // This function can be also called from non-events
     if (e) {
         if (!e.isTrusted) {
             return;
         }
         e.preventDefault();
+    }
+
+    if (await useKeePassXCPasswordGenerator()) {
+        kpxcPasswordDialog.newFill(field, await sendMessage('generate_password'));
+        return;
     }
 
     callbackGeneratedPassword(await sendMessage('generate_password'));
@@ -291,6 +307,27 @@ kpxcPasswordDialog.fill = function(e) {
     }
 };
 
+// New way to fill the password
+kpxcPasswordDialog.newFill = function(elem, password) {
+    if (!elem || !password) {
+        return;
+    }
+
+    if (elem.getAttribute('maxlength')) {
+        if (password.value.length > elem.getAttribute('maxlength')) {
+            const message = tr('passwordGeneratorErrorTooLong') + '\r\n'
+                            + tr('passwordGeneratorErrorTooLongCut') + '\r\n' + tr('passwordGeneratorErrorTooLongRemember');
+            message.style.whiteSpace = 'pre';
+            sendMessage('show_notification', [ message ]);
+            return;
+        }
+    }
+
+    elem.value = password;
+    elem.dispatchEvent(new Event('input', { bubbles: true }));
+    elem.dispatchEvent(new Event('change', { bubbles: true }));
+};
+
 kpxcPasswordDialog.copyPasswordToClipboard = function() {
     kpxcPasswordDialog.shadowSelector('.kpxc-pwgen-input').select();
     try {
@@ -301,8 +338,8 @@ kpxcPasswordDialog.copyPasswordToClipboard = function() {
     return false;
 };
 
-const callbackGeneratedPassword = function(entries) {
-    if (entries && entries.length >= 1) {
+const callbackGeneratedPassword = function(passwords) {
+    if (passwords && passwords.length >= 1) {
         const errorMessage = kpxcPasswordDialog.shadowSelector('#kpxc-pwgen-error');
         if (errorMessage) {
             enableButtons();
@@ -312,7 +349,7 @@ const callbackGeneratedPassword = function(entries) {
             errorMessage.remove();
         }
 
-        kpxcPasswordDialog.shadowSelector('.kpxc-pwgen-input').value = entries[0].password;
+        kpxcPasswordDialog.shadowSelector('.kpxc-pwgen-input').value = passwords[0].password;
     } else {
         if (kpxcPasswordDialog.shadowSelectorAll('div#kpxc-pwgen-error').length === 0) {
             const input = kpxcPasswordDialog.shadowSelector('.kpxc-pwgen-input');
@@ -338,4 +375,17 @@ const disableButtons = function() {
     kpxcPasswordDialog.shadowSelector('#kpxc-pwgen-btn-generate').textContent = tr('passwordGeneratorTryAgain');
     kpxcPasswordDialog.shadowSelector('#kpxc-pwgen-btn-copy').style.display = 'none';
     kpxcPasswordDialog.shadowSelector('#kpxc-pwgen-btn-fill').style.display = 'none';
+};
+
+const useKeePassXCPasswordGenerator = async function() {
+    const response = await browser.runtime.sendMessage({
+        action: 'get_keepassxc_versions'
+    });
+
+    const result = await browser.runtime.sendMessage({
+        action: 'compare_version',
+        args: [ '2.7.0', response.current ]
+    });
+
+    return result || response.current === '2.7.0-snapshot';
 };
